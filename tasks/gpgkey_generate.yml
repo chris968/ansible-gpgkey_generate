@@ -89,7 +89,12 @@
   changed_when: false
   become: yes
   become_user: "{{ gpg_generator_user }}"
-
+- name: get user armorder secret key
+  shell: "gpg --export-secret-key -a {{ gpg_useremail }} > {{ gpg_home }}/{{ gpg_secretkeyfileexport }}"
+  change_when: false
+  become: yes
+  become_user: "{{ gpg_generator_user }}"
+  when: gpg_secretkeyfileexport is defined
 
 - debug: var=gpg_pull
 - name: fetch files to orchestrator
