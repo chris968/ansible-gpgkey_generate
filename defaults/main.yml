@@ -14,6 +14,7 @@ gpg_useremail: "{{ gpg_user }}@localhost"
 gpg_pubkeyfile: "{{ gpg_user }}.pub"
 gpg_privkeyfile: "{{ gpg_user }}.priv"
 gpg_pubkeyfileexport: "{{ gpg_user }}.asc"
+#gpg_secretkeyfileexport: "{{ gpg_user-priv.ac }}"
 gpg_fingerprint: "{{ gpg_user }}-fingerprint"
 
 gpg_keylength: 2048
