@@ -1,7 +1,7 @@
 %echo Generating a basic OpenPGP key
-Key-Type: 1
+Key-Type: default
 Key-Length: {{ gpg_keylength }}
-Subkey-Type: 1
+Subkey-Type: default
 Subkey-Length: {{ gpg_subkeylength }}
 Name-Real: {{ gpg_realname }}
 Name-Email: {{ gpg_useremail }}
