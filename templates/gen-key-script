@@ -1,7 +1,12 @@
 %echo Generating a basic OpenPGP key
+{% if ansible_distribution == Ubuntu %}
 Key-Type: 1
-Key-Length: {{ gpg_keylength }}
+Subkey-Type: 1
+{% else %}
+Key-Type: default
 Subkey-Type: default
+{% endif %}
+Key-Length: {{ gpg_keylength }}
 Subkey-Length: {{ gpg_subkeylength }}
 Name-Real: {{ gpg_realname }}
 Name-Email: {{ gpg_useremail }}
