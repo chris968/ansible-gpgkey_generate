@@ -1,5 +1,5 @@
 %echo Generating a basic OpenPGP key
-{% if ansible_distribution == Ubuntu %}
+{% if ansible_distribution == "Ubuntu" %}
 Key-Type: 1
 Subkey-Type: 1
 {% else %}
