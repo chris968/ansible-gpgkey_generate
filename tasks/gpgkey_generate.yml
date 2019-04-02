@@ -7,36 +7,48 @@
 - name: entropy state
   debug: var=entropy
 - name: apt | Ensure have enough randomness
-  apt: name={{item}} state=present update_cache=yes
+  apt: name={{ item }} state=present update_cache=yes
   with_items:
     - rng-tools
 #    - gnupg
     - gpgv2
 ## https://docs.ansible.com/ansible/become.html#becoming-an-unprivileged-user
     - acl
-  when: (ansible_distribution == 'Debian' and ansible_distribution_version|int >= 7) or (ansible_distribution == 'Ubuntu' and ansible_distribution_version|int >= 14)
+  when: >
+    (ansible_distribution == 'Debian' and ansible_distribution_version|int >= 7) or
+    (ansible_distribution == 'Ubuntu' and ansible_distribution_version|int >= 14)
   become: yes
+  register: pkg_result
+  until: pkg_result is success
 - name: apt | Ensure have enough randomness
-  apt: name={{item}} state=present update_cache=yes
+  apt: name={{ item }} state=present update_cache=yes
   with_items:
     - rng-tools
     - gnupg
-  when: (ansible_distribution == 'Debian' and ansible_distribution_version|int < 7) or (ansible_distribution == 'Ubuntu' and ansible_distribution_version|int < 14)
+  when: >
+    (ansible_distribution == 'Debian' and ansible_distribution_version|int < 7) or
+    (ansible_distribution == 'Ubuntu' and ansible_distribution_version|int < 14)
   become: yes
+  register: pkg_result
+  until: pkg_result is success
 
 - name: yum | Ensure have enough randomness
-  yum: name={{item}} state=present update_cache=yes
+  yum: name={{ item }} state=present update_cache=yes
   with_items:
     - haveged
     - rng-tools
     - gnupg
     - acl
-  when: ansible_os_family == "RedHat" or ansible_distribution == 'CentOS' or ansible_distribution == 'Red Hat Enterprise Linux'
+  when: ansible_os_family == "RedHat"
   become: yes
+  register: pkg_result
+  until: pkg_result is success
 - name: Enable haveged - redhat
   service: name=haveged state=started enabled=yes
-  when: ansible_os_family == "RedHat" or ansible_distribution == 'CentOS' or ansible_distribution == 'Red Hat Enterprise Linux'
   become: yes
+  when: >
+    ansible_os_family == "RedHat" and
+    not (ansible_virtualization_type is defined and ansible_virtualization_type == "docker")
 - name: check entropy state
   command: "cat /proc/sys/kernel/random/entropy_avail"
   changed_when: false
@@ -52,10 +64,23 @@
 
 - name: Ensure .gnupg config directory exists with right permissions
   file: dest={{ gpg_home }}/.gnupg state=directory mode=0700 owner="{{ gpg_generator_user }}"
+
 - name: set defaut gpg options
-  copy: src=gpg.conf dest="{{ gpg_home }}/.gnupg/gpg.conf" mode=0600 owner="{{ gpg_generator_user }}"
+  template:
+    src: gpg.conf.j2
+    dest: "{{ gpg_home }}/.gnupg/gpg.conf"
+    mode: '0600'
+    owner: "{{ gpg_generator_user }}"
 - name: copy default template for gpg key generation
-  template: src=gen-key-script dest="{{ gpg_home }}/.gnupg/gen-key-script-{{ gpg_user }}" mode=0600 owner="{{ gpg_generator_user }}"
+  template:
+    src: gen-key-script
+    dest: "{{ gpg_home }}/.gnupg/gen-key-script-{{ gpg_user }}"
+    mode: '0600'
+    owner: "{{ gpg_generator_user }}"
+
+- include: gpg21.yml
+  when: ansible_distribution == 'Ubuntu' and ansible_distribution_major_version|int > 16
+
 ## Note: matching on realname or email doesn't allow to create multiple keys. alternative?
 - name: check existing secret key
   shell: "gpg --list-secret-keys | grep '{{ gpg_realname }}'"
@@ -65,21 +90,37 @@
   become_user: "{{ gpg_generator_user }}"
   register: gpgkeys
 - debug: var=gpgkeys
+
 - name: generate gpg key
-  command: "gpg --batch --gen-key {{ gpg_home }}/.gnupg/gen-key-script-{{ gpg_user }} chdir={{ gpg_home }}"
+  command: "gpg --batch --gen-key {{ gpg_home }}/.gnupg/gen-key-script-{{ gpg_user }}"
+  args:
+    chdir: "{{ gpg_home }}"
   become: yes
   become_user: "{{ gpg_generator_user }}"
-  when: gpgkeys is defined and gpgkeys.stdout == ""
+  when: gpgkeys is defined and not gpgkeys.stdout
   register: genkey
+
 #- debug: var=genkey
-- name: import generated keys
+- name: GPG<2.1 | import generated keys
   command: "gpg --import {{ gpg_home }}/{{ gpg_pubkeyfile }} {{ gpg_home }}/{{ gpg_privkeyfile }}"
   become: yes
   become_user: "{{ gpg_generator_user }}"
-  when: gpgkeys is defined and gpgkeys.stdout == ""
+  when: >
+    gpgkeys is defined and not gpgkeys.stdout and
+    not (ansible_distribution == 'Ubuntu' and ansible_distribution_major_version|int > 16)
+
+- name: GPG2.1+ | import generated keys
+  command: "gpg --import {{ gpg_home }}/{{ gpg_pubkeyfile }}"
+  become: yes
+  become_user: "{{ gpg_generator_user }}"
+  when: >
+    gpgkeys is defined and not gpgkeys.stdout and
+    (ansible_distribution == 'Ubuntu' and ansible_distribution_major_version|int > 16)
 
 - name: get user gpg fingerprint
-  shell: "gpg --fingerprint {{ gpg_useremail }} | awk -F= '/Key fingerprint/ { gsub(/ /,\"\", $2); print $2 }' | tee {{ gpg_home }}/{{ gpg_fingerprint }}"
+  shell: >
+     gpg --fingerprint {{ gpg_useremail }} | awk -F= '/Key fingerprint/ { gsub(/ /,\"\", $2); print $2 }' |
+        tee {{ gpg_home }}/{{ gpg_fingerprint }}
   changed_when: false
   register: gpg_user_fingerprint
   become: yes
@@ -89,7 +130,7 @@
   changed_when: false
   become: yes
   become_user: "{{ gpg_generator_user }}"
-- name: get user armorder secret key
+- name: get user armored secret key
   shell: "gpg --export-secret-key -a {{ gpg_useremail }} > {{ gpg_home }}/{{ gpg_secretkeyfileexport }}"
   change_when: false
   become: yes
@@ -111,5 +152,3 @@
   with_items:
     - "{{ gpg_home }}/{{ gpg_privkeyfile }}"
   when: gpg_pull is defined and gpg_pull and gpg_pull_privatekey is defined and gpg_pull_privatekey
-
-
